@@ -92,7 +92,7 @@ function Ask-RateMapper($Payload) {
 You map freight forwarding rate spreadsheet columns. Return JSON only, with no Markdown.
 Never invent a price, currency, route, carrier, charge, or container type.
 Decide one kind: rate_master, safe_rate, charge_rule, or unknown.
-For rate_master return mapping keys chargeId, mode, pol, pod, container, amount, currency.
+For rate_master return mapping keys chargeId, mode, pol, pod, container, amount, currency, and optionally min for a minimum charge column.
 For safe_rate return mapping keys place, port, size, amount.
 For charge_rule return mapping keys id, name, section, modes, terms, directions, unit, currency.
 Each mapping value must be either a source column name exactly as supplied, a constant such as "const:KRW", or an empty string if not available.
