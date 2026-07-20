@@ -51,65 +51,41 @@
   const uid = () => Math.random().toString(36).slice(2,9);
   const listVals = v => Array.isArray(v)?v:String(v||'').split('|').map(x=>x.trim()).filter(Boolean);
   const store = {get:(k,f)=>{try{const v=localStorage.getItem(k);return v===null?f:(JSON.parse(v)??f)}catch{return f}},set:(k,v)=>localStorage.setItem(k,JSON.stringify(v))};
+  // ---- IndexedDB: localStorage 용량(5~10MB) 한도를 넘는 대용량 요율(예: 전국 안전운임 고시표, 수만 행)의 rows 저장 전용 ----
+  const BIG_ROWS_THRESHOLD=3000;
+  const IDB_NAME='fq-bigdata',IDB_STORE='rows';
+  function idbOpen(){return new Promise((res,rej)=>{const req=indexedDB.open(IDB_NAME,1);req.onupgradeneeded=()=>req.result.createObjectStore(IDB_STORE);req.onsuccess=()=>res(req.result);req.onerror=()=>rej(req.error)})}
+  async function idbSet(key,val){const d=await idbOpen();return new Promise((res,rej)=>{const tx=d.transaction(IDB_STORE,'readwrite');tx.objectStore(IDB_STORE).put(val,key);tx.oncomplete=()=>res();tx.onerror=()=>rej(tx.error)})}
+  async function idbGet(key){const d=await idbOpen();return new Promise((res,rej)=>{const tx=d.transaction(IDB_STORE,'readonly');const rq=tx.objectStore(IDB_STORE).get(key);rq.onsuccess=()=>res(rq.result);rq.onerror=()=>rej(rq.error)})}
+  async function idbDelete(key){const d=await idbOpen();return new Promise((res,rej)=>{const tx=d.transaction(IDB_STORE,'readwrite');tx.objectStore(IDB_STORE).delete(key);tx.oncomplete=()=>res();tx.onerror=()=>rej(tx.error)})}
 
   const defaults = {
     company:{name:'귀사명',address:'',tel:'',email:''},
     chargeMaster:[
-      {id:'TRUCK',name:'TRUCKING CHARGE',section:'국내발생비용',modes:['FCL','LCL','AIR'],terms:['EXW','FCA','FOB','CFR','CIF','CPT','CIP'],directions:['export'],unit:'CNTR',currency:'KRW'},
-      {id:'EXPORT_CUSTOMS',name:'EXPORT CUSTOMS CLEARANCE',section:'국내발생비용',modes:['FCL','LCL','AIR'],terms:['EXW','FCA','FOB','CFR','CIF','CPT','CIP'],directions:['export'],unit:'SHIPMENT',currency:'KRW'},
-      {id:'THC',name:'TERMINAL HANDLING CHARGE',section:'국내발생비용',modes:['FCL'],terms:['FCA','FOB','CFR','CIF','CPT','CIP'],directions:['export'],unit:'CNTR',currency:'KRW'},
+      {id:'TRUCK',name:'TRUCKING CHARGE',section:'국내발생비용',modes:['FCL','LCL','AIR'],terms:['EXW','FCA','FOB','CFR','CIF','CPT','CIP','DAP','DDP'],directions:['export'],unit:'CNTR',currency:'KRW'},
+      {id:'EXPORT_CUSTOMS',name:'EXPORT CUSTOMS CLEARANCE',section:'국내발생비용',modes:['FCL','LCL','AIR'],terms:['EXW','FCA','FOB','CFR','CIF','CPT','CIP','DAP','DDP'],directions:['export'],unit:'SHIPMENT',currency:'KRW'},
+      {id:'THC',name:'TERMINAL HANDLING CHARGE',section:'국내발생비용',modes:['FCL'],terms:['FCA','FOB','CFR','CIF','CPT','CIP','DAP','DDP'],directions:['export'],unit:'CNTR',currency:'KRW'},
       {id:'DOC',name:'DOCUMENT FEE',section:'국내발생비용',modes:['FCL','LCL','AIR'],terms:['EXW','FCA','FOB','CFR','CIF','CPT','CIP','DAP','DDP'],directions:['export','import'],unit:'BL',currency:'KRW'},
-      {id:'SEAL',name:'SEAL CHARGE',section:'국내발생비용',modes:['FCL'],terms:['EXW','FCA','FOB','CFR','CIF','CPT','CIP'],directions:['export'],unit:'CNTR',currency:'KRW'},
-      {id:'WFG',name:'WHARFAGE',section:'국내발생비용',modes:['FCL'],terms:['FCA','FOB','CFR','CIF','CPT','CIP'],directions:['export'],unit:'CNTR',currency:'KRW'},
-      {id:'PORT_SAFETY',name:'PORT SAFETY MANAGEMENT FEE',section:'국내발생비용',modes:['FCL'],terms:['FCA','FOB','CFR','CIF','CPT','CIP'],directions:['export'],unit:'CNTR',currency:'KRW'},
-      {id:'PFS',name:'PORT FACILITY SECURITY CHARGE',section:'국내발생비용',modes:['FCL'],terms:['FCA','FOB','CFR','CIF','CPT','CIP'],directions:['export'],unit:'CNTR',currency:'KRW'},
-      {id:'OCEAN',name:'OCEAN FREIGHT',section:'해상운임',modes:['FCL','LCL'],terms:['CFR','CIF','CPT','CIP','DAP','DDP'],directions:['export','import'],unit:'CNTR',currency:'USD'},
-      {id:'CFS',name:'CFS CHARGE',section:'국내발생비용',modes:['LCL'],terms:['EXW','FCA','FOB','CFR','CIF','CPT','CIP'],directions:['export'],unit:'RT',currency:'KRW'},
-      {id:'LCL_FREIGHT',name:'LCL OCEAN FREIGHT',section:'해상운임',modes:['LCL'],terms:['CFR','CIF','CPT','CIP','DAP','DDP'],directions:['export','import'],unit:'RT',currency:'USD'},
-      {id:'AIR_FREIGHT',name:'AIR FREIGHT',section:'항공운임',modes:['AIR'],terms:['CPT','CIP','DAP','DDP'],directions:['export','import'],unit:'KG',currency:'USD'},
-      {id:'FUEL',name:'FUEL SURCHARGE',section:'항공운임',modes:['AIR'],terms:['CPT','CIP','DAP','DDP'],directions:['export','import'],unit:'KG',currency:'USD'},
-      {id:'SECURITY',name:'SECURITY CHARGE',section:'국내발생비용',modes:['AIR'],terms:['EXW','FCA','CPT','CIP'],directions:['export'],unit:'KG',currency:'KRW'},
-      {id:'AWB',name:'AWB FEE',section:'국내발생비용',modes:['AIR'],terms:['EXW','FCA','CPT','CIP'],directions:['export'],unit:'AWB',currency:'KRW'},
-      {id:'AIR_WH',name:'AIR WAREHOUSE CHARGE',section:'국내발생비용',modes:['AIR'],terms:['EXW','FCA','CPT','CIP'],directions:['export'],unit:'KG',currency:'KRW'},
-      {id:'IMPORT_THC',name:'IMPORT THC',section:'해외발생비용',modes:['FCL','LCL'],terms:['DAP','DDP'],directions:['export','import'],unit:'CNTR',currency:'USD'},
-      {id:'IMPORT_CUSTOMS',name:'IMPORT CUSTOMS CLEARANCE',section:'해외발생비용',modes:['FCL','LCL','AIR'],terms:['DDP'],directions:['export','import'],unit:'SHIPMENT',currency:'USD'},
-      {id:'DELIVERY',name:'DELIVERY CHARGE',section:'해외발생비용',modes:['FCL','LCL','AIR'],terms:['DAP','DDP'],directions:['export','import'],unit:'SHIPMENT',currency:'USD'}
+      {id:'SEAL',name:'SEAL CHARGE',section:'국내발생비용',modes:['FCL'],terms:['EXW','FCA','FOB','CFR','CIF','CPT','CIP','DAP','DDP'],directions:['export'],unit:'CNTR',currency:'KRW'},
+      {id:'WFG',name:'WHARFAGE',section:'국내발생비용',modes:['FCL'],terms:['FCA','FOB','CFR','CIF','CPT','CIP','DAP','DDP'],directions:['export'],unit:'CNTR',currency:'KRW'},
+      {id:'PORT_SAFETY',name:'PORT SAFETY MANAGEMENT FEE',section:'국내발생비용',modes:['FCL'],terms:['FCA','FOB','CFR','CIF','CPT','CIP','DAP','DDP'],directions:['export'],unit:'CNTR',currency:'KRW'},
+      {id:'PFS',name:'PORT FACILITY SECURITY CHARGE',section:'국내발생비용',modes:['FCL'],terms:['FCA','FOB','CFR','CIF','CPT','CIP','DAP','DDP'],directions:['export'],unit:'CNTR',currency:'KRW'},
+      // 아래 4개(해상·항공 운임)와 3개(도착지 비용)는 수출/수입 방향에 따라 부담 주체가 대칭적으로 뒤집힌다.
+      // 운임: 수출은 C/D 조건(CFR·CIF·CPT·CIP·DAP·DDP)에서 수출자가 주선·부담, 수입은 그 반대인 E/F 조건(EXW·FCA·FOB)에서 수입자가 주선·부담.
+      // 도착지 비용(터미널·통관·인도): 수출은 D 조건(DAP·DDP)에서만 수출자가 해외 도착비용까지 부담, 수입은 D 조건을 "제외한" 나머지 전부에서 수입자가 국내 도착비용을 직접 부담(D 조건이면 해외 매도인이 부담하므로 수입자에게는 안 뜬다).
+      {id:'OCEAN',name:'OCEAN FREIGHT',section:'해상운임',modes:['FCL','LCL'],terms:['CFR','CIF','CPT','CIP','DAP','DDP'],termsByDirection:{export:['CFR','CIF','CPT','CIP','DAP','DDP'],import:['EXW','FCA','FOB']},directions:['export','import'],unit:'CNTR',currency:'USD'},
+      {id:'CFS',name:'CFS CHARGE',section:'국내발생비용',modes:['LCL'],terms:['EXW','FCA','FOB','CFR','CIF','CPT','CIP','DAP','DDP'],directions:['export'],unit:'RT',currency:'KRW'},
+      {id:'LCL_FREIGHT',name:'LCL OCEAN FREIGHT',section:'해상운임',modes:['LCL'],terms:['CFR','CIF','CPT','CIP','DAP','DDP'],termsByDirection:{export:['CFR','CIF','CPT','CIP','DAP','DDP'],import:['EXW','FCA','FOB']},directions:['export','import'],unit:'RT',currency:'USD'},
+      {id:'AIR_FREIGHT',name:'AIR FREIGHT',section:'항공운임',modes:['AIR'],terms:['CPT','CIP','DAP','DDP'],termsByDirection:{export:['CPT','CIP','DAP','DDP'],import:['EXW','FCA']},directions:['export','import'],unit:'KG',currency:'USD'},
+      {id:'FUEL',name:'FUEL SURCHARGE',section:'항공운임',modes:['AIR'],terms:['CPT','CIP','DAP','DDP'],termsByDirection:{export:['CPT','CIP','DAP','DDP'],import:['EXW','FCA']},directions:['export','import'],unit:'KG',currency:'USD'},
+      {id:'SECURITY',name:'SECURITY CHARGE',section:'국내발생비용',modes:['AIR'],terms:['EXW','FCA','CPT','CIP','DAP','DDP'],directions:['export'],unit:'KG',currency:'KRW'},
+      {id:'AWB',name:'AWB FEE',section:'국내발생비용',modes:['AIR'],terms:['EXW','FCA','CPT','CIP','DAP','DDP'],directions:['export'],unit:'AWB',currency:'KRW'},
+      {id:'AIR_WH',name:'AIR WAREHOUSE CHARGE',section:'국내발생비용',modes:['AIR'],terms:['EXW','FCA','CPT','CIP','DAP','DDP'],directions:['export'],unit:'KG',currency:'KRW'},
+      {id:'IMPORT_THC',name:'IMPORT THC',section:'해외발생비용',sectionByDirection:{import:'국내발생비용'},modes:['FCL','LCL'],terms:['DAP','DDP'],termsByDirection:{export:['DAP','DDP'],import:['EXW','FCA','FOB','CFR','CIF','CPT','CIP']},directions:['export','import'],unit:'CNTR',currency:'USD'},
+      {id:'IMPORT_CUSTOMS',name:'IMPORT CUSTOMS CLEARANCE',section:'해외발생비용',sectionByDirection:{import:'국내발생비용'},modes:['FCL','LCL','AIR'],terms:['DDP'],termsByDirection:{export:['DDP'],import:['EXW','FCA','FOB','CFR','CIF','CPT','CIP','DAP']},directions:['export','import'],unit:'SHIPMENT',currency:'USD'},
+      {id:'DELIVERY',name:'DELIVERY CHARGE',section:'해외발생비용',sectionByDirection:{import:'국내발생비용'},modes:['FCL','LCL','AIR'],terms:['DAP','DDP'],termsByDirection:{export:['DAP','DDP'],import:['EXW','FCA','FOB','CFR','CIF','CPT','CIP']},directions:['export','import'],unit:'SHIPMENT',currency:'USD'}
     ]
   };
-
-  // ---- 전사 공통 터미널 부대비용 시드 (forwarder.kr 2026-07 조회분, HTML 내장) ----
-  // THC/안전관리비/보안료/SEAL은 전 항구 공통, 화물입출항료(WFG)만 항구별 상이.
-  const SEED_COMMON_RATES=[
-    {chargeId:'THC',mode:'FCL',pol:'',pod:'',container:'DRY 20FT',amount:150000,currency:'KRW',min:0},
-    {chargeId:'THC',mode:'FCL',pol:'',pod:'',container:'DRY 40FT',amount:210000,currency:'KRW',min:0},
-    {chargeId:'THC',mode:'FCL',pol:'',pod:'',container:'REEFER 20FT',amount:250000,currency:'KRW',min:0},
-    {chargeId:'THC',mode:'FCL',pol:'',pod:'',container:'REEFER 40FT',amount:375000,currency:'KRW',min:0},
-    {chargeId:'THC',mode:'FCL',pol:'',pod:'',container:'OPEN TOP 20FT',amount:180000,currency:'KRW',min:0},
-    {chargeId:'THC',mode:'FCL',pol:'',pod:'',container:'OPEN TOP 40FT',amount:250000,currency:'KRW',min:0},
-    {chargeId:'THC',mode:'FCL',pol:'',pod:'',container:'FLAT RACK 20FT',amount:180000,currency:'KRW',min:0},
-    {chargeId:'THC',mode:'FCL',pol:'',pod:'',container:'FLAT RACK 40FT',amount:250000,currency:'KRW',min:0},
-    {chargeId:'THC',mode:'FCL',pol:'',pod:'',container:'DANGEROUS 20FT',amount:180000,currency:'KRW',min:0},
-    {chargeId:'THC',mode:'FCL',pol:'',pod:'',container:'DANGEROUS 40FT',amount:250000,currency:'KRW',min:0},
-    {chargeId:'PORT_SAFETY',mode:'FCL',pol:'',pod:'',container:'20FT',amount:243,currency:'KRW',min:0},
-    {chargeId:'PORT_SAFETY',mode:'FCL',pol:'',pod:'',container:'40FT',amount:486,currency:'KRW',min:0},
-    {chargeId:'PFS',mode:'FCL',pol:'',pod:'',container:'20FT',amount:259,currency:'KRW',min:0},
-    {chargeId:'PFS',mode:'FCL',pol:'',pod:'',container:'40FT',amount:518,currency:'KRW',min:0},
-    {chargeId:'SEAL',mode:'FCL',pol:'',pod:'',container:'ALL',amount:8000,currency:'KRW',min:0},
-    {chargeId:'WFG',mode:'FCL',pol:'부산',pod:'',container:'20FT',amount:4429,currency:'KRW',min:0},
-    {chargeId:'WFG',mode:'FCL',pol:'부산',pod:'',container:'40FT',amount:8858,currency:'KRW',min:0},
-    {chargeId:'WFG',mode:'FCL',pol:'인천',pod:'',container:'20FT',amount:4200,currency:'KRW',min:0},
-    {chargeId:'WFG',mode:'FCL',pol:'인천',pod:'',container:'40FT',amount:8400,currency:'KRW',min:0},
-    {chargeId:'WFG',mode:'FCL',pol:'평택',pod:'',container:'20FT',amount:2190,currency:'KRW',min:0},
-    {chargeId:'WFG',mode:'FCL',pol:'평택',pod:'',container:'40FT',amount:4380,currency:'KRW',min:0},
-    {chargeId:'WFG',mode:'FCL',pol:'광양',pod:'',container:'20FT',amount:1370,currency:'KRW',min:0},
-    {chargeId:'WFG',mode:'FCL',pol:'광양',pod:'',container:'40FT',amount:2740,currency:'KRW',min:0},
-    {chargeId:'WFG',mode:'FCL',pol:'울산',pod:'',container:'20FT',amount:1370,currency:'KRW',min:0},
-    {chargeId:'WFG',mode:'FCL',pol:'울산',pod:'',container:'40FT',amount:2740,currency:'KRW',min:0},
-    {chargeId:'WFG',mode:'FCL',pol:'대산',pod:'',container:'20FT',amount:2200,currency:'KRW',min:0},
-    {chargeId:'WFG',mode:'FCL',pol:'대산',pod:'',container:'40FT',amount:4400,currency:'KRW',min:0},
-    {chargeId:'WFG',mode:'FCL',pol:'포항',pod:'',container:'20FT',amount:1371,currency:'KRW',min:0},
-    {chargeId:'WFG',mode:'FCL',pol:'포항',pod:'',container:'40FT',amount:2742,currency:'KRW',min:0}
-  ];
 
   // ---- 요율 세트(명명·체크·다중) 데이터 모델 + 기존 데이터 마이그레이션 ----
   let rateSets = store.get('fq-ratesets', null);
@@ -122,13 +98,14 @@
   }
   // 적용 범위(scope) 마이그레이션: 기존 세트는 '개인 표준'으로 간주
   rateSets.forEach(s=>{if(!s.scope)s.scope='personal';if(s.client===undefined)s.client=''});
-  // 공통 터미널 부대비용 시드 (v2): 구 샘플 시드를 실데이터로 교체하며 1회 등록
-  if(!store.get('fq-seeded-v2',false)){
+  // v3: 전사 공통 요율(부대비용 THC/SEAL/WFG 등, 안전운임 전국표)은 더 이상 HTML에 심어두지 않고
+  // Supabase DB에서 관리한다(fetchRemoteCommon 참고). 예전 버전이 HTML에 내장해 로컬로 복사해뒀던
+  // 시드는 1회 정리한다 — 실제 공통 데이터는 로그인 여부와 무관하게 DB에서 새로 받아온다.
+  if(!store.get('fq-seeded-v3',false)){
     rateSets=rateSets.filter(s=>s.source!=='seed');
-    rateSets.push({id:uid(),name:'전사 공통 터미널 부대비용 (2026-07)',kind:'rate_master',enabled:true,source:'seed',scope:'common',client:'',createdAt:new Date().toLocaleString('ko-KR'),rows:structuredClone(SEED_COMMON_RATES)});
-    store.set('fq-seeded-v2',true);store.set('fq-ratesets',rateSets);
+    store.set('fq-seeded-v3',true);store.set('fq-ratesets',rateSets);
   }
-  const db = {company:store.get('fq-company',defaults.company), rateSets, rates:[], safeRates:[], master:[], quotes:store.get('fq-quotes',[])};
+  const db = {company:store.get('fq-company',defaults.company), rateSets, rates:[], safeRates:[], master:[], quotes:store.get('fq-quotes',[]), remoteCommonRateMaster:[], remoteSafeCache:{}, remoteSafeTotal:null};
   const KIND_LABEL={rate_master:'운임/부대비용',safe_rate:'안전운송운임',charge_rule:'비용규칙'};
   const SCOPE_LABEL={common:'공통',personal:'개인 표준',client:'고객사 특약'};
   const TIER_LABEL={common:'공통',personal:'표준',client:'특약'};
@@ -149,7 +126,15 @@
     {id:'fxbase',label:'환율 기준',text:()=>'외화(USD) 운임은 청구 시점 외환은행 최초 고시 전신환매도율(T/T Selling Rate)을 적용합니다.'},
     {id:'general',label:'일반화물 기준',text:()=>'본 견적은 일반 화물(General Cargo) 기준이며, 위험물(DG)·냉동·배터리 포함·특수 규격 화물은 운임이 변동되거나 진행이 불가할 수 있습니다.'}
   ];
-  function saveSets(){store.set('fq-ratesets',db.rateSets);cloudPushSets()}
+  function saveSets(){
+    const forStorage=db.rateSets.map(s=>{
+      if(!s.bigStore)return s;
+      idbSet(s.id,s.rows||[]).catch(e=>console.warn('IndexedDB 저장 실패',e));
+      return {...s,rows:[]};
+    });
+    store.set('fq-ratesets',forStorage);
+    cloudPushSets();
+  }
 
   // ---- Supabase 팀 공용 DB (뼈대) ----
   // HTML에는 공개용 publishable key만 사용. 보안은 RLS(로그인 사용자만 접근)가 담당.
@@ -164,7 +149,9 @@
   async function cloudPull(silent){if(!cloudOn())return;try{
     const [rs,qs]=await Promise.all([sb.from('rate_sets').select('*'),sb.from('quotes').select('*')]);
     if(rs.error||qs.error)throw new Error((rs.error||qs.error).message);
-    if((rs.data||[]).length){db.rateSets=rs.data.map(r=>({id:r.id,name:r.name,kind:r.kind,enabled:!!r.enabled,source:r.source||'file',scope:r.scope||'personal',client:r.client||'',createdAt:r.created_label||'',rows:r.rows||[]}));store.set('fq-ratesets',db.rateSets)}
+    // bigStore(전국 안전운임 고시표 등) 세트는 클라우드에 올라가지 않으므로, 풀 시 로컬에 남겨둔다.
+    const localBig=db.rateSets.filter(s=>s.bigStore);
+    if((rs.data||[]).length){db.rateSets=[...localBig,...rs.data.map(r=>({id:r.id,name:r.name,kind:r.kind,enabled:!!r.enabled,source:r.source||'file',scope:r.scope||'personal',client:r.client||'',createdAt:r.created_label||'',rows:r.rows||[]}))];saveSets()}
     else if(db.rateSets.length){await cloudPushSets()} // 클라우드가 비어 있으면 로컬 데이터 최초 이관
     if((qs.data||[]).length){db.quotes=qs.data.map(q=>({id:q.id,name:q.name,savedAt:q.saved_label||'',data:q.data}));store.set('fq-quotes',db.quotes)}
     else if(db.quotes.length){await cloudPushQuotes()}
@@ -172,7 +159,8 @@
     if(!silent)alert('클라우드에서 불러왔습니다.');
   }catch(e){if(!silent)alert('클라우드 동기화 실패: '+e.message);else console.warn('cloud pull',e)}}
   async function cloudPushSets(){if(!cloudOn())return;try{
-    const rows=db.rateSets.map(s=>({id:s.id,name:s.name,kind:s.kind,enabled:!!s.enabled,source:s.source||'file',scope:s.scope||'personal',client:s.client||'',created_label:s.createdAt||'',rows:s.rows||[],updated_by:cloudUser.email}));
+    // bigStore(전국 안전운임 고시표 등 수만 행) 세트는 로컬 IndexedDB 전용으로 두고 팀 공용 DB에는 올리지 않는다(용량 문제).
+    const rows=db.rateSets.filter(s=>!s.bigStore).map(s=>({id:s.id,name:s.name,kind:s.kind,enabled:!!s.enabled,source:s.source||'file',scope:s.scope||'personal',client:s.client||'',created_label:s.createdAt||'',rows:s.rows||[],updated_by:cloudUser.email}));
     if(rows.length){const {error}=await sb.from('rate_sets').upsert(rows);if(error)throw error}
   }catch(e){console.warn('cloud push sets',e)}}
   async function cloudPushQuotes(){if(!cloudOn())return;try{
@@ -181,6 +169,53 @@
     if(rows.length){const {error}=await sb.from('quotes').upsert(rows);if(error)throw error}
   }catch(e){console.warn('cloud push quotes',e)}}
   async function cloudDelete(table,id){if(!cloudOn()||!id)return;try{await sb.from(table).delete().eq('id',id)}catch(e){console.warn('cloud delete',e)}}
+
+  // ---- 전사 공통 요율(부대비용·안전운임) — 로그인 여부와 무관하게 Supabase에서 읽는다 ----
+  // publishable key + RLS(scope='common' 또는 anon 허용) 조합이라 비로그인 사용자도 공통 데이터만 조회 가능하다.
+  async function fetchRemoteCommonRateMaster(){
+    if(!sb)return;
+    try{
+      const {data,error}=await sb.from('rate_sets').select('*').eq('scope','common').eq('kind','rate_master');
+      if(error)throw error;
+      db.remoteCommonRateMaster=(data||[]).flatMap(r=>(r.rows||[]).map(x=>({...x,__client:''})));
+      recompute();createCharges();renderCharges();
+    }catch(e){console.warn('공통 부대비용 조회 실패',e)}
+  }
+  // 안전운임 전국표는 수만 행이라 통째로 받지 않고, 현재 POL/POD 항구명으로만 필터링해 받아 캐시한다.
+  async function fetchRemoteSafeRates(port){
+    const cp=canon(port);
+    if(!sb||!cp||db.remoteSafeCache[cp])return;
+    db.remoteSafeCache[cp]='loading';
+    try{
+      const {data,error}=await sb.from('safe_rates_common').select('port,place,size,amount').ilike('port','%'+port+'%');
+      if(error)throw error;
+      db.remoteSafeCache[cp]=data||[];
+      refreshTruck();renderCharges();
+    }catch(e){console.warn('공통 안전운임 조회 실패',e);delete db.remoteSafeCache[cp];}
+  }
+  async function fetchRemoteSafeTotal(){
+    if(!sb)return;
+    try{const {count,error}=await sb.from('safe_rates_common').select('*',{count:'exact',head:true});if(error)throw error;db.remoteSafeTotal=count||0;}
+    catch(e){console.warn('안전운임 전체 건수 조회 실패',e)}
+  }
+  // 국토부 고시 전국표 재교체: 팀 공용 DB의 안전운임을 통째로 지우고 새로 올린다(관리자 1회 작업, 로그인 필요).
+  async function replaceRemoteSafeRates(rows,onProgress){
+    if(!cloudOn())throw new Error('로그인 후에만 팀 공용 DB에 올릴 수 있습니다.');
+    // 테이블 전체가 아니라 이번에 올리는 파일에 들어있는 기점(항만)만 교체한다.
+    // 예: 왕복표 업로드 후 편도표를 올려도 서로 다른 기점명이라 왕복 데이터가 지워지지 않는다.
+    const ports=[...new Set(rows.map(r=>r.port))];
+    const {error:delErr}=await sb.from('safe_rates_common').delete().in('port',ports);
+    if(delErr)throw delErr;
+    const chunkSize=500;
+    for(let i=0;i<rows.length;i+=chunkSize){
+      const chunk=rows.slice(i,i+chunkSize).map(r=>({port:r.port,place:r.place,size:String(r.size),amount:Number(r.amount)||0}));
+      const {error}=await sb.from('safe_rates_common').insert(chunk);
+      if(error)throw error;
+      if(onProgress)onProgress(Math.min(i+chunkSize,rows.length),rows.length);
+    }
+    db.remoteSafeCache={};
+    await fetchRemoteSafeTotal();
+  }
   function cloudManager(){activeModal='cloud';$('modalTitle').textContent='클라우드 공용 DB';
     if(!sb){$('modalContent').innerHTML='<p class="notice">클라우드 모듈을 불러오지 못했습니다. 인터넷 연결을 확인하세요.</p>';openModal();return}
     $('modalContent').innerHTML=cloudOn()
@@ -191,9 +226,11 @@
     openModal();}
   function recompute(){
     const rows=k=>db.rateSets.filter(s=>s.enabled&&s.kind===k).flatMap(s=>s.rows||[]);
-    // 운임 계층: ① 고객사 특약(client) → ② 개인 표준(personal) → ③ 전사 공통(common)
-    const tier=t=>db.rateSets.filter(s=>s.enabled&&s.kind==='rate_master'&&(s.scope||'personal')===t).flatMap(s=>(s.rows||[]).map(r=>({...r,__client:s.client||''})));
-    db.rateTiers={client:tier('client'),personal:tier('personal'),common:tier('common')};
+    // 운임 계층: ① 고객사 특약(client) → ② 개인 표준(personal) → ③ 전사 공통(common) — 부대비용(rate_master)과 내륙운송료(safe_rate) 모두 동일하게 적용
+    const tier=(kind,t)=>db.rateSets.filter(s=>s.enabled&&s.kind===kind&&(s.scope||'personal')===t).flatMap(s=>(s.rows||[]).map(r=>({...r,__client:s.client||''})));
+    // 전사 공통은 로컬에 올려둔 것(있다면) + Supabase에서 받아온 팀 공용 데이터를 합친다.
+    db.rateTiers={client:tier('rate_master','client'),personal:tier('rate_master','personal'),common:[...tier('rate_master','common'),...db.remoteCommonRateMaster]};
+    db.safeTiers={client:tier('safe_rate','client'),personal:tier('safe_rate','personal'),common:tier('safe_rate','common')};
     db.rates=rows('rate_master');
     db.safeRates=rows('safe_rate');
     const rules=rows('charge_rule');
@@ -202,7 +239,8 @@
   }
   function addSet(name,kind,rows,source,scope,client){
     if(!rows||!rows.length){alert('추가할 데이터가 없습니다. 열 이름과 내용을 확인하세요.');return null;}
-    const set={id:uid(),name:(name||('요율 '+(db.rateSets.length+1))).trim(),kind,enabled:true,source:source||'file',scope:scope||'personal',client:client||'',createdAt:new Date().toLocaleString('ko-KR'),rows};
+    const bigStore=rows.length>BIG_ROWS_THRESHOLD;
+    const set={id:uid(),name:(name||('요율 '+(db.rateSets.length+1))).trim(),kind,enabled:true,source:source||'file',scope:scope||'personal',client:client||'',createdAt:new Date().toLocaleString('ko-KR'),bigStore,rows};
     db.rateSets.push(set);saveSets();recompute();createCharges();return set;
   }
 
@@ -259,7 +297,8 @@
   // CNTR 단위 비용은 자기 컨테이너 라인의 대수만 곱한다 (라인 미지정 시 전체 대수)
   function chargeQty(c){if(c.unit==='CNTR'&&mode==='FCL'&&c.conIdx!=null&&containers[c.conIdx])return Number(containers[c.conIdx].qty)||0;return cargoUnit(c.unit)}
   function calcCargo(){const rt=Math.max(number('cbm'),number('ton'));$('rt').value=rt?rt.toFixed(2):'';const vol=number('airCbm')*167;const charge=Math.max(number('grossKg'),vol);$('volKg').value=vol?vol.toFixed(1):'';$('chargeKg').value=charge?charge.toFixed(1):'';let u=mode==='FCL'?`${totalQty()} CNTR`:mode==='LCL'?`${rt.toFixed(2)} RT`:`${charge.toFixed(1)} KG`;$('unitDisplay').textContent=u;$('dgNotice').classList.toggle('hidden',!containers.some(x=>x.type==='DANGEROUS'));}
-  function isApplicable(m){return m.modes.includes(mode)&&m.terms.includes(val('incoterm'))&&m.directions.includes(val('direction'))}
+  function isApplicable(m){const terms=(m.termsByDirection&&m.termsByDirection[val('direction')])||m.terms;return m.modes.includes(mode)&&terms.includes(val('incoterm'))&&m.directions.includes(val('direction'))}
+  const sectionOf=m=>(m.sectionByDirection&&m.sectionByDirection[val('direction')])||m.section;
   function selectedRoute(){return {pol:val('pol'),pod:val('pod'),mode,direction:val('direction')}}
 
   // ---- 요율 매칭 (정규화 + 유사 매칭) ----
@@ -272,7 +311,7 @@
       if(p.size){if(p.size===con.size)s+=3;else if(p.size.slice(0,2)===String(con.size).slice(0,2))s+=2;else return -99}else s+=1;
       return s};
     const score=x=>{const cs=conScore(x);if(cs<0)return -99;let s=cs;const xp=canon(x.pol),xd=canon(x.pod);if(xp&&xp===canon(r.pol))s+=4;else if(!x.pol)s+=1;if(xd&&xd===canon(r.pod))s+=4;else if(!x.pod)s+=1;return s};
-    const match=list=>{const cand=list.filter(x=>String(x.chargeId).toUpperCase()===String(id).toUpperCase()&&(!x.mode||x.mode===r.mode||String(x.mode).toUpperCase()==='ALL'));let best=null,bs=-1;cand.forEach(x=>{const sc=score(x);if(sc>bs){bs=sc;best=x}});return bs>=4?best:null};
+    const match=list=>{const cand=list.filter(x=>String(x.chargeId).toUpperCase()===String(id).toUpperCase()&&(!x.mode||x.mode===r.mode||String(x.mode).toUpperCase()==='ALL'));let best=null,bs=-1;cand.forEach(x=>{const sc=score(x);if(sc>=bs){bs=sc;best=x}});return bs>=4?best:null};
     // 우선순위 조회: ① 화주명과 일치하는 고객사 특약 → ② 개인 표준 → ③ 전사 공통
     const cust=canon(val('customer'));
     if(cust){const hit=match(db.rateTiers.client.filter(x=>canon(x.__client)===cust));if(hit)return{...hit,__tier:'client'}}
@@ -280,11 +319,23 @@
     hit=match(db.rateTiers.common);if(hit)return{...hit,__tier:'common'};
     return null;
   }
-  function safeRate(sizeStr){const norm=s=>String(s||'').replace(/[\s|]/g,'');const place=norm(val('place'));if(!place)return null;const port=val('direction')==='export'?val('pol'):val('pod');const size=mode==='FCL'?(String(sizeStr||'').startsWith('20')?'20':'40'):'ALL';const cands=db.safeRates.filter(x=>canon(x.port)===canon(port)&&(String(x.size)===size||x.size==='ALL'));return cands.find(x=>norm(x.place)===place)||cands.find(x=>norm(x.place).includes(place)||place.includes(norm(x.place)))||null}
-  function refreshTruck(){let total=0,found=false;charges.forEach(t=>{if((t.baseId||t.id)!=='TRUCK')return;const con=(t.conIdx!=null&&containers[t.conIdx])||containers[0];const sr=safeRate(con?con.size:'40');if(sr){t.amount=Number(sr.amount);t.currency='KRW';t.unit='CNTR';t.auto=true;found=true;total+=Number(sr.amount)*chargeQty(t)}else t.auto=false});$('truckDisplay').textContent=found?won(total):'미입력';$('safeDisplay').textContent=found?'안전운송운임':'-'}
+  function safeRate(sizeStr){const norm=s=>String(s||'').replace(/[\s|]/g,'');const place=norm(val('place'));if(!place)return null;const port=val('direction')==='export'?val('pol'):val('pod');const cp=canon(port);const size=mode==='FCL'?(String(sizeStr||'').startsWith('20')?'20':'40'):'ALL';
+    // 항구명은 정확 일치를 먼저 찾고, 없으면 부분 일치(예: "부산"→"부산신항"/"부산북항")로 완화한다. 세부 터미널이 여럿 매칭되면 그 중 하나가 근사치로 쓰인다.
+    const bySize=x=>String(x.size)===size||x.size==='ALL';
+    const findIn=list=>{let cands=list.filter(x=>canon(x.port)===cp&&bySize(x));if(!cands.length)cands=list.filter(x=>cp&&(canon(x.port).includes(cp)||cp.includes(canon(x.port)))&&bySize(x));return cands.find(x=>norm(x.place)===place)||cands.find(x=>norm(x.place).includes(place)||place.includes(norm(x.place)))||null};
+    // 안전운임도 부대비용과 동일한 계층: ① 고객사 특약 → ② 개인 표준 → ③ 전사 공통(로컬 업로드 + Supabase 팀 공용 DB)
+    const cust=canon(val('customer'));
+    if(cust){const hit=findIn(db.safeTiers.client.filter(x=>canon(x.__client)===cust));if(hit)return{...hit,__tier:'client'}}
+    let hit=findIn(db.safeTiers.personal);if(hit)return{...hit,__tier:'personal'};
+    const remote=db.remoteSafeCache[cp];
+    if(remote==='loading'){/* 조회 중 — 완료되면 refreshTruck이 다시 호출됨 */}
+    else if(!remote&&port)fetchRemoteSafeRates(port);
+    hit=findIn([...db.safeTiers.common,...(Array.isArray(remote)?remote:[])]);if(hit)return{...hit,__tier:'common'};
+    return null}
+  function refreshTruck(){let total=0,found=false;charges.forEach(t=>{if((t.baseId||t.id)!=='TRUCK')return;const con=(t.conIdx!=null&&containers[t.conIdx])||containers[0];const sr=safeRate(con?con.size:'40');if(sr){t.amount=Number(sr.amount);t.currency='KRW';t.unit='CNTR';t.auto=true;t.tier=sr.__tier;found=true;total+=Number(sr.amount)*chargeQty(t)}});$('truckDisplay').textContent=found?won(total):(charges.some(t=>(t.baseId||t.id)==='TRUCK'&&t.auto)?won(charges.filter(t=>(t.baseId||t.id)==='TRUCK').reduce((s,t)=>s+amountKRW(t),0)):'미입력');$('safeDisplay').textContent=found?'안전운송운임':(charges.some(t=>(t.baseId||t.id)==='TRUCK'&&t.auto)?'요율표(부대비용)':'-')}
 
   function createCharges(preserve=false){const previous=Object.fromEntries(charges.map(x=>[x.id,x]));
-    const mk=(m,rate,old,key,ci,label)=>{const keepOld=preserve&&old&&(old.auto===false||!rate);return {id:key,baseId:m.id,conIdx:ci,conLabel:label,name:m.name,section:m.section,amount:keepOld?old.amount:rate?Number(rate.amount):0,min:keepOld?(old.min||0):(rate?Number(rate.min)||0:0),vat:old?!!old.vat:(m.vat!==undefined?!!m.vat:!!VAT_DEFAULT[m.id]),currency:keepOld?old.currency:rate?rate.currency:m.currency,unit:keepOld?old.unit:rate?rate.unit:m.unit,auto:keepOld?!!old.auto:!!rate,tier:keepOld?(old.tier||null):(rate?rate.__tier:null)}};
+    const mk=(m,rate,old,key,ci,label)=>{const keepOld=preserve&&old&&(old.manual||!rate);return {id:key,baseId:m.id,conIdx:ci,conLabel:label,name:m.name,section:sectionOf(m),amount:keepOld?old.amount:rate?Number(rate.amount):0,min:keepOld?(old.min||0):(rate?Number(rate.min)||0:0),vat:old?!!old.vat:(m.vat!==undefined?!!m.vat:!!VAT_DEFAULT[m.id]),currency:keepOld?old.currency:rate?rate.currency:m.currency,unit:keepOld?old.unit:rate?rate.unit:m.unit,auto:keepOld?!!old.auto:!!rate,manual:keepOld?!!old.manual:false,tier:keepOld?(old.tier||null):(rate?rate.__tier:null)}};
     charges=db.master.filter(isApplicable).flatMap(m=>{
       if(mode==='FCL'&&m.unit==='CNTR')return containers.map((con,ci)=>mk(m,findRate(m.id,con),previous[m.id+'#'+ci]||(ci===0?previous[m.id]:null),m.id+'#'+ci,ci,containers.length>1?conLabel(con):''));
       return [mk(m,findRate(m.id),previous[m.id],m.id,null,'')];
@@ -295,7 +346,9 @@
   function defaultUnit(){return mode==='FCL'?'CNTR':mode==='LCL'?'RT':'KG'}
   function addToSection(section){const sec=section==='__FREIGHT__'?freightSection():section;const overseas=sec==='해외발생비용'||sec==='해상운임'||sec==='항공운임';charges.push({id:'CUSTOM_'+uid(),name:'NEW CHARGE',section:sec,amount:0,min:0,vat:!overseas,currency:overseas?'USD':'KRW',unit:sec==='해상운임'||sec==='항공운임'?defaultUnit():'SHIPMENT',auto:false});renderCharges();}
 
-  function renderCharges(){calcCargo();const body=$('chargeRows');let last='';body.innerHTML=charges.map((c,i)=>{const heading=c.section!==last?(last=c.section,`<tr class="subtotal"><td colspan="9">${esc(c.section)}</td><td style="text-align:right"><button class="btn small" data-addsec="${esc(c.section)}">+ 항목</button></td></tr>`):'';const v=vatKRW(c);return heading+`<tr data-row="${i}"><td>${esc(c.section)}${c.tier?` <span class="pill${c.tier==='client'?' ai':''}">${TIER_LABEL[c.tier]||''}</span>`:''}${c.conLabel?` <span class="pill">${esc(c.conLabel)}</span>`:''}</td><td><input data-k="name" value="${esc(c.name)}"></td><td style="text-align:center;white-space:nowrap"><input class="chk" type="checkbox" data-k="vat"${c.vat?' checked':''} title="체크 시 금액의 10%가 VAT로 합산됩니다. 영세율(THC·항만보안료 등 보세구역 비용)은 해제."><br><small>${c.vat?v.toLocaleString('ko-KR'):'영세율'}</small></td><td><input type="number" step="0.01" data-k="amount" value="${c.amount}"></td><td><input type="number" step="1" data-k="min" value="${c.min||0}" title="최소금액 (계산액이 이 값보다 작으면 이 값 적용)"></td><td><select data-k="currency"><option${c.currency==='KRW'?' selected':''}>KRW</option><option${c.currency==='USD'?' selected':''}>USD</option></select></td><td><select data-k="unit">${['CNTR','BL','SHIPMENT','RT','KG','AWB','W/M'].map(u=>`<option${c.unit===u?' selected':''}>${u}</option>`).join('')}</select></td><td class="num">${chargeQty(c)}</td><td class="num">${won(amountKRW(c))}</td><td><button class="btn danger small" data-delete="${i}">삭제</button></td></tr>`}).join('');body.querySelectorAll('input,select').forEach(el=>el.addEventListener('input',e=>{const c=charges[Number(e.target.closest('tr').dataset.row)];let k=e.target.dataset.k;if(k==='amount'){c.auto=false;c.tier=null}c[k]=k==='vat'?e.target.checked:(k==='amount'||k==='min')?Number(e.target.value):e.target.value;renderCharges();}));body.querySelectorAll('[data-delete]').forEach(b=>b.onclick=()=>{charges.splice(Number(b.dataset.delete),1);renderCharges()});body.querySelectorAll('[data-addsec]').forEach(b=>b.onclick=()=>addToSection(b.dataset.addsec));const supply=charges.reduce((s,c)=>s+amountKRW(c),0),vatSum=charges.reduce((s,c)=>s+vatKRW(c),0);$('grandTotal').textContent=won(supply+vatSum);$('totalBreak').textContent=`VAT 미포함 ${won(supply)} + VAT ${won(vatSum)}`;}
+  function renderCharges(){calcCargo();const body=$('chargeRows');let last='';body.innerHTML=charges.map((c,i)=>{const heading=c.section!==last?(last=c.section,`<tr class="subtotal"><td colspan="9">${esc(c.section)}</td><td style="text-align:right"><button class="btn small" data-addsec="${esc(c.section)}">+ 항목</button></td></tr>`):'';const v=vatKRW(c);return heading+`<tr data-row="${i}"><td>${esc(c.section)}${c.tier?` <span class="pill${c.tier==='client'?' ai':''}">${TIER_LABEL[c.tier]||''}</span>`:''}${c.conLabel?` <span class="pill">${esc(c.conLabel)}</span>`:''}</td><td><input data-k="name" value="${esc(c.name)}"></td><td style="text-align:center;white-space:nowrap"><input class="chk" type="checkbox" data-k="vat"${c.vat?' checked':''} title="체크 시 금액의 10%가 VAT로 합산됩니다. 영세율(THC·항만보안료 등 보세구역 비용)은 해제."><br><small>${c.vat?v.toLocaleString('ko-KR'):'영세율'}</small></td><td><input type="number" step="0.01" data-k="amount" value="${c.amount}"></td><td><input type="number" step="1" data-k="min" value="${c.min||0}" title="최소금액 (계산액이 이 값보다 작으면 이 값 적용)"></td><td><select data-k="currency"><option${c.currency==='KRW'?' selected':''}>KRW</option><option${c.currency==='USD'?' selected':''}>USD</option></select></td><td><select data-k="unit">${['CNTR','BL','SHIPMENT','RT','KG','AWB','W/M'].map(u=>`<option${c.unit===u?' selected':''}>${u}</option>`).join('')}</select></td><td class="num">${chargeQty(c)}</td><td class="num">${won(amountKRW(c))}</td><td><button class="btn danger small" data-delete="${i}">삭제</button></td></tr>`}).join('');body.querySelectorAll('input,select').forEach(el=>el.addEventListener('input',e=>{const c=charges[Number(e.target.closest('tr').dataset.row)];let k=e.target.dataset.k;if(k==='amount'){c.auto=false;c.manual=true;c.tier=null}c[k]=k==='vat'?e.target.checked:(k==='amount'||k==='min')?Number(e.target.value):e.target.value;renderCharges();}));body.querySelectorAll('[data-delete]').forEach(b=>b.onclick=()=>{charges.splice(Number(b.dataset.delete),1);renderCharges()});body.querySelectorAll('[data-addsec]').forEach(b=>b.onclick=()=>addToSection(b.dataset.addsec));const supply=charges.reduce((s,c)=>s+amountKRW(c),0),vatSum=charges.reduce((s,c)=>s+vatKRW(c),0);$('grandTotal').textContent=won(supply+vatSum);$('totalBreak').textContent=`VAT 미포함 ${won(supply)} + VAT ${won(vatSum)}`;}
+  // 수출은 출발항(POL)이 한국, 수입은 도착항(POD)이 한국이어야 한다 — 방향 전환 시 두 구간 값을 맞바꿔 한국 쪽이 항상 맞는 칸에 오게 한다.
+  function swapRoute(){const a={c:$('polCountry').value,p:$('pol').value};const b={c:$('podCountry').value,p:$('pod').value};$('polCountry').value=b.c;$('pol').value=b.p;$('podCountry').value=a.c;$('pod').value=a.p;}
   function updateFields(){const f=mode==='FCL';$('fclFields').classList.toggle('hidden',!f);$('lclFields').classList.toggle('hidden',mode!=='LCL');$('airFields').classList.toggle('hidden',mode!=='AIR');$('placeLabel').textContent=val('direction')==='export'?'상차지 (수출)':'하차지 (수입)';fillTerminals();calcCargo();refreshTruck();renderCharges();}
 
   function quoteData(){return {customer:val('customer')||'고객사',direction:val('direction'),mode,incoterm:val('incoterm'),fx:number('fx'),date:val('quoteDate'),polCountry:val('polCountry'),pol:val('pol'),podCountry:val('podCountry'),pod:val('pod'),terminal:val('terminal'),place:val('place'),containers:structuredClone(containers),container:containers.map(c=>`${c.type==='DRY'?'':c.type+' '}${c.size} × ${c.qty}`).join(' + '),qty:totalQty(),cbm:number('cbm'),ton:number('ton'),grossKg:number('grossKg'),airCbm:number('airCbm'),remarks:val('remarks'),remarkIds:[...remarkIds],validUntil:val('validUntil'),charges:structuredClone(charges),company:db.company};}
@@ -309,6 +362,35 @@
   function download(name,content,type='text/plain;charset=utf-8'){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([content],{type}));a.download=name;a.click();URL.revokeObjectURL(a.href)}
   function readDataFile(file,done){if(!file)return;const isXlsx=/\.xlsx?$/i.test(file.name);const reader=new FileReader();reader.onload=()=>{try{if(isXlsx){if(!window.XLSX)throw new Error('엑셀 읽기 모듈을 불러오지 못했습니다. 인터넷 연결을 확인하거나 CSV UTF-8 파일을 사용하세요.');const book=XLSX.read(reader.result,{type:'array'});done(XLSX.utils.sheet_to_json(book.Sheets[book.SheetNames[0]],{defval:''}));}else{done(/\.json$/i.test(file.name)?JSON.parse(reader.result):csvRows(reader.result));}}catch(err){alert(err.message||'파일 형식을 확인해 주세요. CSV, Excel(.xlsx) 또는 JSON을 사용할 수 있습니다.')}};isXlsx?reader.readAsArrayBuffer(file):reader.readAsText(file,'utf-8')}
   function readSafeHtml(file,done){const reader=new FileReader();reader.onload=()=>{try{const match=String(reader.result).match(/const DATA = (\{.*?\});\s*\r?\n\s*const W/s);if(!match)throw new Error('안전운임 조회기 데이터가 없는 HTML입니다.');const source=JSON.parse(match[1]);const rows=[];Object.entries(source.W||{}).forEach(([place,ports])=>Object.entries(ports).forEach(([port,a])=>{if(Array.isArray(a)){rows.push({place:place.replace(/\|/g,' '),port,size:'40',amount:Number(a[1])});rows.push({place:place.replace(/\|/g,' '),port,size:'20',amount:Number(a[4])});}}));done(rows)}catch(err){alert(err.message||'안전운임 HTML을 읽지 못했습니다.')}};reader.readAsText(file,'utf-8')}
+  // ---- 국토부 컨테이너 안전운임 고시 엑셀(항만별 시트, 전국 읍·면·동) 전용 파서 ----
+  // 시트 1개 = 기점(항만/ICD) 1곳. 1·2행 헤더, 3행부터 데이터. 열: 시도,시군구,읍면동,구간거리(km),
+  // 40FT[안전위탁운임,운수사업자간운임,안전운송운임], 20FT[안전위탁운임,운수사업자간운임,안전운송운임].
+  // 안전위탁운임·운수사업자간운임은 버리고 안전운송운임(화주 청구 하한)만 사용한다.
+  function readGovSafeXlsx(file,done){
+    const reader=new FileReader();
+    reader.onload=()=>{
+      try{
+        if(!window.XLSX)throw new Error('엑셀 읽기 모듈을 불러오지 못했습니다. 인터넷 연결을 확인하세요.');
+        const book=XLSX.read(reader.result,{type:'array'});
+        const rows=[];
+        book.SheetNames.forEach(sheetName=>{
+          const aoa=XLSX.utils.sheet_to_json(book.Sheets[sheetName],{header:1,defval:''});
+          for(let i=2;i<aoa.length;i++){
+            const r=aoa[i];if(!r)continue;
+            const place=[r[0],r[1],r[2]].map(x=>String(x||'').trim()).filter(Boolean).join(' ');
+            if(!place)continue;
+            const a40=Number(String(r[6]||'').replace(/[^0-9.-]/g,''))||0;
+            const a20=Number(String(r[9]||'').replace(/[^0-9.-]/g,''))||0;
+            if(a40>0)rows.push({place,port:sheetName,size:'40',amount:a40});
+            if(a20>0)rows.push({place,port:sheetName,size:'20',amount:a20});
+          }
+        });
+        if(!rows.length)throw new Error('안전운송운임(원) 데이터를 찾지 못했습니다. 정부 고시 원본 서식(시도/시군구/읍면동 + 40FT/20FT 3종 운임) 그대로 올려주세요.');
+        done(rows);
+      }catch(err){alert(err.message||'안전운임 고시 엑셀을 읽지 못했습니다.')}
+    };
+    reader.readAsArrayBuffer(file);
+  }
 
   // ---- 종류 자동 판별 + 표준화 ----
   function detectKind(rows){const keys=Object.keys(rows[0]||{}).map(k=>String(k).toLowerCase());const has=(...a)=>a.some(x=>keys.includes(x));if(has('place','작업지')&&has('port','항구'))return 'safe_rate';if(has('section','구분')&&has('modes','운송방식'))return 'charge_rule';if(has('chargeid','항목코드')||(has('amount','금액')&&has('pol','pod','container','컨테이너')))return 'rate_master';return 'rate_master'}
@@ -324,32 +406,61 @@
   function closeModal(){$('managerModal').classList.add('hidden')}
   function rateManager(){
     activeModal='rates';$('modalTitle').textContent='요율 관리';
-    const list=db.rateSets.length?db.rateSets.map(s=>{const sc=s.scope||'personal';const scopeCell=s.kind==='rate_master'?`<select class="chk" data-setscope="${s.id}"><option value="common"${sc==='common'?' selected':''}>③ 공통</option><option value="personal"${sc==='personal'?' selected':''}>② 개인 표준</option><option value="client"${sc==='client'?' selected':''}>① 고객사 특약</option></select>${sc==='client'?`<br><span class="hint">${esc(s.client||'고객사 미지정')}</span>`:''}`:'<span class="hint">-</span>';return `<tr class="setrow"><td><input class="chk" type="checkbox" data-tgl="${s.id}" ${s.enabled?'checked':''}></td><td><b>${esc(s.name)}</b> <span class="pill ${s.source==='ai'?'ai':''}">${s.source==='seed'?'기본':s.source==='ai'?'AI':'파일'}</span>${s.kind==='rate_master'&&sc==='client'?` <span class="pill ai">특약: ${esc(s.client||'')}</span>`:''}<br><span class="hint">${KIND_LABEL[s.kind]||s.kind} · ${s.rows.length}건${s.createdAt?' · '+esc(s.createdAt):''}</span></td><td>${scopeCell}</td><td style="white-space:nowrap"><button class="btn small" data-edit="${s.id}">보기/편집</button> <button class="btn small" data-ren="${s.id}">이름</button> <button class="btn danger small" data-del="${s.id}">삭제</button></td></tr>`}).join(''):'<tr><td colspan="4" class="hint" style="padding:14px">업로드한 요율표가 없습니다. 아래에서 추가하세요.</td></tr>';
+    const tieredKinds=['rate_master','safe_rate'];
+    const list=db.rateSets.length?db.rateSets.map(s=>{const sc=s.scope||'personal';const isTiered=tieredKinds.includes(s.kind);const scopeCell=isTiered?`<select class="chk" data-setscope="${s.id}"><option value="common"${sc==='common'?' selected':''}>③ 공통</option><option value="personal"${sc==='personal'?' selected':''}>② 개인 표준</option><option value="client"${sc==='client'?' selected':''}>① 고객사 특약</option></select>${sc==='client'?`<br><span class="hint">${esc(s.client||'고객사 미지정')}</span>`:''}`:'<span class="hint">-</span>';return `<tr class="setrow"><td><input class="chk" type="checkbox" data-tgl="${s.id}" ${s.enabled?'checked':''}></td><td><b>${esc(s.name)}</b> <span class="pill ${s.source==='ai'?'ai':''}">${s.source==='seed'?'기본':s.source==='ai'?'AI':'파일'}</span>${isTiered&&sc==='client'?` <span class="pill ai">특약: ${esc(s.client||'')}</span>`:''}<br><span class="hint">${KIND_LABEL[s.kind]||s.kind} · ${s.rows.length}건${s.createdAt?' · '+esc(s.createdAt):''}</span></td><td>${scopeCell}</td><td style="white-space:nowrap"><button class="btn small" data-edit="${s.id}">보기/편집</button> <button class="btn small" data-ren="${s.id}">이름</button> <button class="btn danger small" data-del="${s.id}">삭제</button></td></tr>`}).join(''):'<tr><td colspan="4" class="hint" style="padding:14px">업로드한 요율표가 없습니다. 아래에서 추가하세요.</td></tr>';
     $('modalContent').innerHTML=`<p class="hint">여러 요율표를 올리고 <b>체크로 적용 여부</b>를 정합니다. 운임 적용 우선순위: <b>① 고객사 특약 → ② 개인 표준 → ③ 전사 공통</b>. 화주명이 특약 고객사와 일치하면 특약 단가가 우선 적용되고, 없는 항목은 개인 표준 → 공통 순으로 채워집니다.</p>
       <div class="table-wrap"><table style="min-width:0"><thead><tr><th style="width:44px">적용</th><th>이름 / 종류</th><th style="width:130px">적용 범위</th><th style="width:210px">관리</th></tr></thead><tbody id="setBody">${list}</tbody></table></div>
       <div class="rate-list" id="setCount"></div><hr>
       <div class="file-row"><div><label>새 요율표 업로드 (자동 종류 판별)</label><input id="rateFile" type="file" accept=".csv,.json,.xlsx,.html"></div></div>
       <p class="hint">운임/부대비용·비용규칙·안전운임을 올리면 종류를 판별해 <b>이름을 붙여 목록에 추가</b>합니다. 원본 안전운임 조회기 HTML도 그대로 올릴 수 있습니다.</p>
-      <div class="actions"><button class="btn" id="rateTemplate">운임 양식</button><button class="btn" id="ruleTemplate">비용규칙 양식</button><button class="btn" id="safeTemplate">안전운임 양식</button></div>`;
+      <div class="actions"><button class="btn" id="rateTemplate">운임 양식</button><button class="btn" id="ruleTemplate">비용규칙 양식</button><button class="btn" id="safeTemplate">안전운임 양식</button></div>
+      <hr><div class="file-row"><div><label>안전운임 고시 전국표 업로드 (국토부 xlsx, 항만별 시트·전국 읍면동)</label><input id="govSafeFile" type="file" accept=".xlsx"></div></div>
+      <p class="hint">"(별첨) 수출입 컨테이너 품목 기점별 운임(편도/왕복)" 원본 그대로 올리세요. 시트별로 기점(항만/ICD) 1곳씩, <b>안전운송운임(원)만 자동으로 추려서</b> 반영합니다(안전위탁운임·운수사업자간운임은 무시). <b>클라우드 로그인 중이면 팀 공용 DB(Supabase)로 올라가 비로그인 사용자를 포함한 전원에게 즉시 적용</b>되고, 로그인 전이면 이 브라우저에만 저장됩니다.</p>
+      <p class="hint">전사 공통(부대비용·안전운임)은 이제 HTML이 아니라 Supabase에서 관리됩니다. 공통 부대비용 ${db.remoteCommonRateMaster.length}건${db.remoteSafeTotal!=null?` · 공통 안전운임 ${db.remoteSafeTotal.toLocaleString('ko-KR')}행`:''} (로그인 없이도 조회됨)</p>`;
     $('setCount').textContent=`요율 세트 ${db.rateSets.length}개 · 적용 중 운임 ${db.rates.length}건 / 안전운임 ${db.safeRates.length}건 / 비용규칙 ${db.master.length}건`;
     $('rateTemplate').onclick=()=>download('rate_master_template.csv','chargeId,mode,pol,pod,container,amount,currency,min\nOCEAN,FCL,부산,첸나이,40FT,1800,USD,0\nOCEAN,FCL,부산,첸나이,DANGEROUS 40FT,2200,USD,0\nTHC,FCL,,,DRY 40FT,210000,KRW,0\nDOC,FCL,부산,,ALL,40000,KRW,0\nAIR_WH,AIR,인천,,ALL,120,KRW,30000\n');
     $('ruleTemplate').onclick=()=>download('charge_rule_template.csv','id,name,section,modes,terms,directions,unit,currency\nOCEAN,OCEAN FREIGHT,해상운임,FCL,CFR|CIF|DAP|DDP,export|import,CNTR,USD\n');
     $('safeTemplate').onclick=()=>download('safe_rate_template.csv','place,port,size,amount\n평택시 포승읍,부산신항,40,780500\n평택시 포승읍,부산신항,20,697400\n');
     $('rateFile').onchange=e=>{const file=e.target.files[0];if(!file)return;if(/\.html?$/i.test(file.name)){readSafeHtml(file,rows=>promptAdd(file.name,'safe_rate',rows));return}readDataFile(file,rows=>{if(!rows||!rows.length){alert('읽을 데이터가 없습니다.');return}const kind=detectKind(rows);promptAdd(file.name,kind,normalizeRows(kind,rows))})};
+    $('govSafeFile').onchange=e=>{const file=e.target.files[0];if(!file)return;readGovSafeXlsx(file,async rows=>{
+      if(cloudOn()){
+        const portCount=new Set(rows.map(r=>r.port)).size;
+        if(!confirm(`${rows.length.toLocaleString('ko-KR')}행(${portCount}개 기점)을 팀 공용 DB(Supabase)에 올립니다. 이 파일에 있는 기점만 기존 데이터를 교체하고, 다른 기점(예: 편도/왕복을 따로 올린 경우)은 그대로 유지됩니다. 계속할까요?`))return;
+        try{
+          $('setCount').textContent='업로드 중...';
+          await replaceRemoteSafeRates(rows,(done,total)=>{$('setCount').textContent=`업로드 중... ${done.toLocaleString('ko-KR')}/${total.toLocaleString('ko-KR')}행`});
+          alert('팀 공용 DB에 안전운임 전국표를 등록했습니다. 로그인 여부와 무관하게 담당자 전원에게 즉시 적용됩니다.');
+          refreshTruck();renderCharges();rateManager();
+        }catch(err){alert('업로드 실패: '+(err.message||err));rateManager();}
+      }else{
+        if(!confirm('로그인하지 않은 상태입니다. 이렇게 올리면 이 브라우저에만 저장되고 팀과 공유되지 않습니다. 팀 전체에 공유하려면 취소하고 먼저 클라우드 로그인하세요.\n\n그래도 이 브라우저에서만 쓸까요?'))return;
+        const name=prompt('요율표 이름을 정하세요.',file.name.replace(/\.[^.]+$/,''))||file.name;
+        if(addSet(name,'safe_rate',rows,'file','personal',''))rateManager();
+      }
+    })};
     $('setBody').querySelectorAll('[data-tgl]').forEach(cb=>cb.onchange=()=>{const s=db.rateSets.find(x=>x.id===cb.dataset.tgl);s.enabled=cb.checked;saveSets();recompute();createCharges();$('setCount').textContent=`요율 세트 ${db.rateSets.length}개 · 적용 중 운임 ${db.rates.length}건 / 안전운임 ${db.safeRates.length}건 / 비용규칙 ${db.master.length}건`});
-    $('setBody').querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{if(confirm('이 요율표를 삭제할까요?')){db.rateSets=db.rateSets.filter(x=>x.id!==b.dataset.del);cloudDelete('rate_sets',b.dataset.del);saveSets();recompute();createCharges();rateManager()}});
+    $('setBody').querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{if(confirm('이 요율표를 삭제할까요?')){const s=db.rateSets.find(x=>x.id===b.dataset.del);if(s&&s.bigStore)idbDelete(s.id).catch(e=>console.warn(e));db.rateSets=db.rateSets.filter(x=>x.id!==b.dataset.del);cloudDelete('rate_sets',b.dataset.del);saveSets();recompute();createCharges();rateManager()}});
     $('setBody').querySelectorAll('[data-ren]').forEach(b=>b.onclick=()=>{const s=db.rateSets.find(x=>x.id===b.dataset.ren);const n=prompt('요율표 이름',s.name);if(n){s.name=n.trim();saveSets();rateManager()}});
     $('setBody').querySelectorAll('[data-setscope]').forEach(sel=>sel.onchange=()=>{const s=db.rateSets.find(x=>x.id===sel.dataset.setscope);if(sel.value==='client'){const c=prompt('이 요율표를 특약으로 적용할 고객사명을 입력하세요.',s.client||val('customer')||'');if(!c||!c.trim()){rateManager();return}s.client=c.trim()}s.scope=sel.value;saveSets();recompute();createCharges(true);refreshCustomerSuggest();rateManager()});
     $('setBody').querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>editSet(b.dataset.edit));
     openModal();
   }
-  function askScope(kind){if(kind!=='rate_master')return{scope:'personal',client:''};const c=prompt('적용 범위를 정하세요.\n· 고객사 특약이면 고객사명 입력 (① 최우선 적용)\n· 전사 공통이면 "공통" 입력 (③ 기본값 역할)\n· 본인 표준 요율이면 빈 칸 그대로 확인 (② 차순위)','');if(c&&c.trim()==='공통')return{scope:'common',client:''};if(c&&c.trim())return{scope:'client',client:c.trim()};return{scope:'personal',client:''}}
-  function promptAdd(fileName,kind,rows){const base=fileName.replace(/\.[^.]+$/,'');const name=prompt(`요율표 이름을 정하세요.\n판별된 종류: ${KIND_LABEL[kind]||kind} · ${rows.length}건`,base)||base;const sc=askScope(kind);if(addSet(name,kind,rows,'file',sc.scope,sc.client))rateManager();}
+  function askScope(kind,defaultAnswer){if(kind==='charge_rule')return{scope:'personal',client:''};const c=prompt('적용 범위를 정하세요.\n· 고객사 특약이면 고객사명 입력 (① 최우선 적용)\n· 전사 공통이면 "공통" 입력 (③ 기본값 역할)\n· 본인 표준 요율이면 빈 칸 그대로 확인 (② 차순위)',defaultAnswer||'');if(c&&c.trim()==='공통')return{scope:'common',client:''};if(c&&c.trim())return{scope:'client',client:c.trim()};return{scope:'personal',client:''}}
+  function promptAdd(fileName,kind,rows,source,defaultScopeAnswer){const base=fileName.replace(/\.[^.]+$/,'');const name=prompt(`요율표 이름을 정하세요.\n판별된 종류: ${KIND_LABEL[kind]||kind} · ${rows.length}건`,base)||base;const sc=askScope(kind,defaultScopeAnswer);if(addSet(name,kind,rows,source||'file',sc.scope,sc.client)){if(sc.scope==='common'&&!cloudOn())alert('"공통"으로 등록했지만 로그인 전이라 이 브라우저에만 적용됩니다. 팀 전체와 공유하려면 클라우드 로그인 후 다시 저장하세요.');rateManager();}}
 
   const COLS={rate_master:['chargeId','mode','pol','pod','container','amount','currency','min'],safe_rate:['place','port','size','amount'],charge_rule:['id','name','section','modes','terms','directions','unit','currency']};
   const ARRCOLS={modes:1,terms:1,directions:1};
   function editSet(id){
     const s=db.rateSets.find(x=>x.id===id);if(!s)return;activeModal='edit';$('modalTitle').textContent='요율표 편집 · '+s.name;
+    if(s.rows.length>BIG_ROWS_THRESHOLD){
+      const sample=s.rows.slice(0,20);
+      const cols2=Object.keys(sample[0]||{});
+      $('modalContent').innerHTML=`<p class="hint">${s.rows.length.toLocaleString('ko-KR')}행짜리 대용량 요율표라 표에서 직접 수정할 수 없습니다(브라우저 성능 문제). 아래는 앞 20행 미리보기이며, 값을 바꾸려면 파일을 고쳐서 다시 업로드(재교체) 하세요.</p>
+        <div class="table-wrap"><table style="min-width:0"><thead><tr>${cols2.map(c=>`<th>${c}</th>`).join('')}</tr></thead><tbody>${sample.map(r=>`<tr>${cols2.map(c=>`<td>${esc(r[c])}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
+        <div class="actions" style="margin-top:10px"><button class="btn" id="backBtn">뒤로</button></div>`;
+      $('backBtn').onclick=()=>rateManager();
+      openModal();return;
+    }
     const cols=COLS[s.kind]||Object.keys(s.rows[0]||{});
     const cell=(v,col)=>ARRCOLS[col]?(Array.isArray(v)?v.join('|'):(v||'')):(v??'');
     const draw=()=>{$('editBody').innerHTML=s.rows.map((r,i)=>`<tr data-r="${i}">${cols.map(c=>`<td><input data-c="${c}" value="${esc(cell(r[c],c))}"></td>`).join('')}<td><button class="btn danger small" data-drow="${i}">×</button></td></tr>`).join('');$('editBody').querySelectorAll('input').forEach(inp=>inp.addEventListener('input',e=>{const tr=e.target.closest('tr');const row=s.rows[Number(tr.dataset.r)];const c=e.target.dataset.c;row[c]=ARRCOLS[c]?listVals(e.target.value):(c==='amount'?Number(e.target.value)||0:e.target.value)}));$('editBody').querySelectorAll('[data-drow]').forEach(b=>b.onclick=()=>{s.rows.splice(Number(b.dataset.drow),1);draw()});};
@@ -396,9 +507,9 @@
 
   // ---- 이벤트 ----
   $('mode').querySelectorAll('button').forEach(b=>b.onclick=()=>{mode=b.dataset.mode;$('mode').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));createCharges();updateFields()});
-  ['direction','incoterm','pol','pod','cbm','ton','grossKg','airCbm','fx','place'].forEach(id=>$(id).addEventListener('input',()=>{if(['direction','incoterm','pol','pod'].includes(id))createCharges(true);updateFields()}));
+  ['incoterm','pol','pod','cbm','ton','grossKg','airCbm','fx','place'].forEach(id=>$(id).addEventListener('input',()=>{if(['incoterm','pol','pod'].includes(id))createCharges(true);updateFields()}));
   $('addCon').onclick=()=>{containers.push({type:'DRY',size:'20FT',qty:1});renderCons();createCharges(true);updateFields()};
-  $('direction').addEventListener('change',()=>{createCharges();updateFields()});$('incoterm').addEventListener('change',()=>{createCharges();updateFields()});
+  $('direction').addEventListener('change',()=>{swapRoute();createCharges();updateFields()});$('incoterm').addEventListener('change',()=>{createCharges();updateFields()});
   $('customer').addEventListener('input',()=>{createCharges(true);refreshCustomerSuggest()});
   document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>addToSection(b.dataset.add));
   $('addCharge').onclick=()=>addToSection('기타');
@@ -415,7 +526,15 @@
   $('compareABtn').onclick=()=>{if(!planA){alert('먼저 [A안으로 고정]을 눌러 비교 기준을 만드세요.');return}compareAB()};
   $('aiRate').onclick=aiRateManager;$('rateManager').onclick=rateManager;$('companyManager').onclick=companyManager;$('cloudBtn').onclick=cloudManager;$('closeModal').onclick=closeModal;$('managerModal').onclick=e=>{if(e.target===$('managerModal'))closeModal()};$('saveQuote').onclick=quoteSaver;$('loadQuote').onclick=quoteSaver;
 
-  renderCons();recompute();createCharges();updateFields();renderRemarks();refreshCustomerSuggest();preview();cloudInit();
+  // IndexedDB에 rows를 넘겨둔 대용량 요율 세트(예: 전국 안전운임 고시표)는 여기서 비동기로 불러와 채운다.
+  function loadBigRows(){
+    const pending=db.rateSets.filter(s=>s.bigStore&&(!s.rows||!s.rows.length));
+    if(!pending.length)return;
+    Promise.all(pending.map(s=>idbGet(s.id).then(rows=>{s.rows=rows||[]}).catch(e=>console.warn('IndexedDB 로드 실패',s.name,e))))
+      .then(()=>{recompute();createCharges();renderCharges();});
+  }
+
+  renderCons();recompute();createCharges();updateFields();renderRemarks();refreshCustomerSuggest();preview();cloudInit();loadBigRows();fetchRemoteCommonRateMaster();fetchRemoteSafeTotal();
 })();
 </script>
 </body>
